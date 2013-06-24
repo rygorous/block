@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-        "sort"
 )
 
 const (
@@ -52,20 +51,6 @@ type postInfo struct {
 	Series []*Post // list of parent posts for series
 }
 
-type postSortSlice []*Post
-
-func (p postSortSlice) Len() int {
-        return len(p)
-}
-
-func (p postSortSlice) Less(i, j int) bool {
-        return p[i].Id < p[j].Id
-}
-
-func (p postSortSlice) Swap(i, j int) {
-        p[i], p[j] = p[j], p[i]
-}
-
 func reversePosts(posts []*Post) {
         n := len(posts)
         for i := 0; i < n/2; i++ {
@@ -91,18 +76,9 @@ func processPosts(posts []*Post) error {
 		return err
 	}
 
-        // Sort all posts by ID in increasing order
-        sort.Sort(postSortSlice(posts))
-
-        // Determine links between posts.
-        for _, post := range posts {
-                // Determine permalink
-                post.Href = template.URL(post.RenderedName())
-
-                // Determine child linkage from parent linkage
-                if post.Parent != nil {
-                        post.Parent.Kids = append(post.Parent.Kids, post)
-                }
+        err = LinkPosts(posts)
+        if err != nil {
+                return err
         }
 
         // Determine list of "most recent" posts and "series" posts

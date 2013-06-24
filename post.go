@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/russross/blackfriday"
 	"html/template"
+        "sort"
         "strconv"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ type Post struct {
 	Parent   *Post        // for series
 
         Active bool // used during rendering
+
+        parentId int
 
 	*blackfriday.Html // ugh. but the alternative is implementing all of "Renderer"...
 }
@@ -88,21 +91,27 @@ func (post *Post) parseContent(contents []byte, extensions int) error {
 
 		key, value := parseKeyValueLine(line)
 		if key == "" {
-			return fmt.Errorf("configuration line %q ill-formed in post %q", line, post.Filename)
+                        return fmt.Errorf("%q: configuration line %q ill-formed", post.Filename, line)
 		}
 
 		switch key {
 		case "time":
 			post.Time, err = time.Parse("2006-01-02", value)
 			if err != nil {
-				return fmt.Errorf("while trying to parse time in %q: %q", post.Filename, err.Error())
+                                return fmt.Errorf("%q: error while trying to parse time: %q", post.Filename, err.Error())
 			}
 
                 case "pagename":
                         post.PageName = value
 
+                case "parent":
+                        post.parentId, err = strconv.Atoi(value)
+                        if err != nil || post.parentId <= 0 {
+                                return fmt.Errorf("%q: invalid parent id", post.Filename)
+                        }
+
 		default:
-			return fmt.Errorf("unknown property %q in post %q", key, post.Filename)
+                        return fmt.Errorf("%q: unknown property %q", post.Filename, key)
 		}
 	}
 
@@ -143,6 +152,53 @@ func (p *Post) RenderedName() string {
 	}
 
 	return ""
+}
+
+type postSortSlice []*Post
+
+func (p postSortSlice) Len() int {
+        return len(p)
+}
+
+func (p postSortSlice) Less(i, j int) bool {
+        return p[i].Id < p[j].Id
+}
+
+func (p postSortSlice) Swap(i, j int) {
+        p[i], p[j] = p[j], p[i]
+}
+
+func findPost(posts []*Post, findId int) *Post {
+        for _, post := range posts {
+                if post.Id == findId {
+                        return post
+                }
+        }
+        return nil
+}
+
+// Perform inter-post linking
+func LinkPosts(posts []*Post) error {
+        // Sort all posts by ID in increasing order
+        sort.Sort(postSortSlice(posts))
+
+        // Determine links between posts.
+        for _, post := range posts {
+                // Determine permalink
+                post.Href = template.URL(post.RenderedName())
+
+                // Link children to their parents (and back)
+                if post.parentId != 0 {
+                        post.Parent = findPost(posts, post.parentId)
+                        if post.Parent == nil {
+                                return fmt.Errorf("%q: parent id %d does not correspond to an existing post.", post.Filename, post.parentId)
+                        } else {
+                                post.Parent.Kids = append(post.Parent.Kids, post)
+                        }
+                }
+        }
+
+        return nil
 }
 
 // ---- Bunch of functions here to implement the Renderer interface
