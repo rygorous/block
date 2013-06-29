@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"github.com/russross/blackfriday"
 	"html/template"
-        "sort"
-        "strconv"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,9 +22,9 @@ type Post struct {
 	Kids     []*Post      // for series
 	Parent   *Post        // for series
 
-        Active bool // used during rendering
+	Active bool // used during rendering
 
-        parentId int
+	parentId int
 
 	*blackfriday.Html // ugh. but the alternative is implementing all of "Renderer"...
 }
@@ -36,13 +36,13 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 
 	// attempt to parse ID from file name (if given)
 	id := 0
-        if idx := strings.Index(filename, "-"); idx != -1 {
-                val, err := strconv.Atoi(filename[:idx])
-                if err != nil {
-                        return nil, fmt.Errorf("post %q has an ill-formed ID: %q", filename, filename[:idx])
-                }
-                id = val
-        }
+	if idx := strings.Index(filename, "-"); idx != -1 {
+		val, err := strconv.Atoi(filename[:idx])
+		if err != nil {
+			return nil, fmt.Errorf("post %q has an ill-formed ID: %q", filename, filename[:idx])
+		}
+		id = val
+	}
 
 	extensions := 0
 	extensions |= blackfriday.EXTENSION_NO_INTRA_EMPHASIS
@@ -54,7 +54,7 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 	post := &Post{
 		Filename: filename,
 		Id:       id,
-		Html: render.(*blackfriday.Html),
+		Html:     render.(*blackfriday.Html),
 	}
 
 	err := post.parseContent(contents, extensions)
@@ -90,27 +90,27 @@ func (post *Post) parseContent(contents []byte, extensions int) error {
 
 		key, value := parseKeyValueLine(line)
 		if key == "" {
-                        return fmt.Errorf("%q: configuration line %q ill-formed", post.Filename, line)
+			return fmt.Errorf("%q: configuration line %q ill-formed", post.Filename, line)
 		}
 
 		switch key {
 		case "time":
 			post.Time, err = time.Parse("2006-01-02", value)
 			if err != nil {
-                                return fmt.Errorf("%q: error while trying to parse time: %q", post.Filename, err.Error())
+				return fmt.Errorf("%q: error while trying to parse time: %q", post.Filename, err.Error())
 			}
 
-                case "pagename":
-                        post.PageName = value
+		case "pagename":
+			post.PageName = value
 
-                case "parent":
-                        post.parentId, err = strconv.Atoi(value)
-                        if err != nil || post.parentId <= 0 {
-                                return fmt.Errorf("%q: invalid parent id", post.Filename)
-                        }
+		case "parent":
+			post.parentId, err = strconv.Atoi(value)
+			if err != nil || post.parentId <= 0 {
+				return fmt.Errorf("%q: invalid parent id", post.Filename)
+			}
 
 		default:
-                        return fmt.Errorf("%q: unknown property %q", post.Filename, key)
+			return fmt.Errorf("%q: unknown property %q", post.Filename, key)
 		}
 	}
 
@@ -156,48 +156,48 @@ func (p *Post) RenderedName() string {
 type postSortSlice []*Post
 
 func (p postSortSlice) Len() int {
-        return len(p)
+	return len(p)
 }
 
 func (p postSortSlice) Less(i, j int) bool {
-        return p[i].Id < p[j].Id
+	return p[i].Id < p[j].Id
 }
 
 func (p postSortSlice) Swap(i, j int) {
-        p[i], p[j] = p[j], p[i]
+	p[i], p[j] = p[j], p[i]
 }
 
 func findPost(posts []*Post, findId int) *Post {
-        for _, post := range posts {
-                if post.Id == findId {
-                        return post
-                }
-        }
-        return nil
+	for _, post := range posts {
+		if post.Id == findId {
+			return post
+		}
+	}
+	return nil
 }
 
 // Perform inter-post linking
 func LinkPosts(posts []*Post) error {
-        // Sort all posts by ID in increasing order
-        sort.Sort(postSortSlice(posts))
+	// Sort all posts by ID in increasing order
+	sort.Sort(postSortSlice(posts))
 
-        // Determine links between posts.
-        for _, post := range posts {
-                // Determine permalink
-                post.Href = template.URL(post.RenderedName())
+	// Determine links between posts.
+	for _, post := range posts {
+		// Determine permalink
+		post.Href = template.URL(post.RenderedName())
 
-                // Link children to their parents (and back)
-                if post.parentId != 0 {
-                        post.Parent = findPost(posts, post.parentId)
-                        if post.Parent == nil {
-                                return fmt.Errorf("%q: parent id %d does not correspond to an existing post.", post.Filename, post.parentId)
-                        } else {
-                                post.Parent.Kids = append(post.Parent.Kids, post)
-                        }
-                }
-        }
+		// Link children to their parents (and back)
+		if post.parentId != 0 {
+			post.Parent = findPost(posts, post.parentId)
+			if post.Parent == nil {
+				return fmt.Errorf("%q: parent id %d does not correspond to an existing post.", post.Filename, post.parentId)
+			} else {
+				post.Parent.Kids = append(post.Parent.Kids, post)
+			}
+		}
+	}
 
-        return nil
+	return nil
 }
 
 func (p *Post) Header(out *bytes.Buffer, text func() bool, level int) {
