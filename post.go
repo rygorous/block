@@ -54,7 +54,6 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 	post := &Post{
 		Filename: filename,
 		Id:       id,
-		// TODO: Series linkage
 		Html: render.(*blackfriday.Html),
 	}
 
@@ -200,8 +199,6 @@ func LinkPosts(posts []*Post) error {
 
         return nil
 }
-
-// ---- Bunch of functions here to implement the Renderer interface
 
 func (p *Post) Header(out *bytes.Buffer, text func() bool, level int) {
 	if level != 1 {

@@ -12,6 +12,9 @@ import (
 const (
         baseUrl string = "http://blog.rygorous.org"
         numRecentPosts = 5
+
+        templateDir = "template"
+        outDir = "out"
 )
 
 func Warnf(msg string, args ...interface{}) {
@@ -66,7 +69,7 @@ func max(a, b int) int {
 }
 
 func processPosts(posts []*Post) error {
-	tmpl_text, err := ioutil.ReadFile("template/template.html")
+	tmpl_text, err := ioutil.ReadFile(filepath.Join(templateDir, "template.html"))
 	if err != nil {
 		return err
 	}
@@ -110,7 +113,7 @@ func processPosts(posts []*Post) error {
 	for _, post := range posts {
                 fmt.Printf("processing %d: %q\n", post.Id, post.Title)
 
-                outfile, err := os.Create("out/" + post.RenderedName())
+                outfile, err := os.Create(filepath.Join(outDir, post.RenderedName()))
                 if err != nil {
                         return err
                 }
@@ -147,22 +150,33 @@ func copyFile(dstname, srcname string) error {
 }
 
 func prepareOutput() error {
-        // don't check for (expected) error here (directory already exists)
-        os.Mkdir("out", 0733)
-
-        var files []string = []string{
-                "style.less",
-                "less.js",
+        err := os.RemoveAll(outDir)
+        if err != nil {
+                return err
         }
 
-        for _, file := range files {
-                err := copyFile("out/" + file, "template/" + file)
+        // Copy all files from the template dir, except for the actual template html.
+        err = filepath.Walk(templateDir, func(path string, info os.FileInfo, err error) error {
+                relpath, err := filepath.Rel(templateDir, path)
                 if err != nil {
                         return err
                 }
-        }
 
-        return nil
+                if relpath == "template.html" {
+                        return nil
+                }
+
+                outpath := filepath.Join(outDir, relpath)
+                if info.IsDir() {
+                        err = os.MkdirAll(outpath, 0733)
+                } else {
+                        err = copyFile(outpath, path)
+                }
+
+                return err
+        })
+
+        return err
 }
 
 func check(err error) {
