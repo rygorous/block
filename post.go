@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/russross/blackfriday"
+	"github.com/rygorous/blackfriday"
 	"html/template"
 	"sort"
 	"strconv"
@@ -22,18 +22,25 @@ type Post struct {
 	Kids     []*Post      // for series
 	Parent   *Post        // for series
 
-	Active bool // used during rendering
+	// Flags for rendering
+	Active  bool
+	MathJax bool
 
+	// Internals
 	parentId int
-
-	*blackfriday.Html // ugh. but the alternative is implementing all of "Renderer"...
+	markdown []byte // actual markdown code
 }
 
-func NewPost(filename string, contents []byte) (*Post, error) {
-	render := blackfriday.HtmlRenderer(
-		blackfriday.HTML_USE_SMARTYPANTS|blackfriday.HTML_SMARTYPANTS_LATEX_DASHES,
-		"", "")
+const (
+	extensions = blackfriday.EXTENSION_NO_INTRA_EMPHASIS |
+		blackfriday.EXTENSION_TABLES |
+		blackfriday.EXTENSION_FENCED_CODE |
+		blackfriday.EXTENSION_AUTOLINK |
+		blackfriday.EXTENSION_SPACE_HEADERS |
+		blackfriday.EXTENSION_MATH
+)
 
+func NewPost(filename string, contents []byte) (*Post, error) {
 	// attempt to parse ID from file name (if given)
 	id := 0
 	if idx := strings.Index(filename, "-"); idx != -1 {
@@ -44,28 +51,22 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 		id = val
 	}
 
-	extensions := 0
-	extensions |= blackfriday.EXTENSION_NO_INTRA_EMPHASIS
-	extensions |= blackfriday.EXTENSION_TABLES
-	extensions |= blackfriday.EXTENSION_FENCED_CODE
-	extensions |= blackfriday.EXTENSION_AUTOLINK
-	extensions |= blackfriday.EXTENSION_SPACE_HEADERS
-
 	post := &Post{
 		Filename: filename,
 		Id:       id,
-		Html:     render.(*blackfriday.Html),
 	}
-
-	err := post.parseContent(contents, extensions)
+	err := post.parseContent(contents)
 	if err != nil {
 		return nil, err
 	}
 
+	render := newHtmlRenderer(post)
+	post.Content = template.HTML(blackfriday.Markdown(post.markdown, render, extensions))
+
 	return post, nil
 }
 
-func (post *Post) parseContent(contents []byte, extensions int) error {
+func (post *Post) parseContent(contents []byte) error {
 	rest := contents
 
 	// Lines at the beginning of the file that start with "-" denote property
@@ -113,8 +114,8 @@ func (post *Post) parseContent(contents []byte, extensions int) error {
 			return fmt.Errorf("%q: unknown property %q", post.Filename, key)
 		}
 	}
+	post.markdown = rest
 
-	post.Content = template.HTML(blackfriday.Markdown(rest, post, extensions))
 	return post.validate()
 }
 
@@ -200,18 +201,50 @@ func LinkPosts(posts []*Post) error {
 	return nil
 }
 
-func (p *Post) Header(out *bytes.Buffer, text func() bool, level int) {
+type postHtmlRenderer struct {
+	*blackfriday.Html
+	post *Post
+}
+
+func newHtmlRenderer(post *Post) *postHtmlRenderer {
+	return &postHtmlRenderer{
+		post: post,
+		Html: blackfriday.HtmlRenderer(
+			blackfriday.HTML_USE_SMARTYPANTS|blackfriday.HTML_SMARTYPANTS_LATEX_DASHES,
+			"", "").(*blackfriday.Html),
+	}
+}
+
+func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int) {
 	if level != 1 {
 		p.Html.Header(out, text, level)
 		return
 	}
 
-	if p.Title != "" {
-		Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.Filename)
+	if p.post.Title != "" {
+		Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Filename)
 	}
 
 	marker := out.Len()
 	text()
-	p.Title = string(out.Bytes()[marker:])
+	p.post.Title = string(out.Bytes()[marker:])
 	out.Truncate(marker)
+}
+
+func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
+	p.Html.Link(out, link, title, content)
+}
+
+func (p *postHtmlRenderer) DisplayMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
+	out.WriteString("\\[")
+	p.Html.DisplayMath(out, text)
+	out.WriteString("\\]")
+}
+
+func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
+	out.WriteString("\\(")
+	p.Html.InlineMath(out, text)
+	out.WriteString("\\)")
 }
