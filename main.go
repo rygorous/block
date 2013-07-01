@@ -203,6 +203,9 @@ func main() {
 	os.Chdir("c:/Store/Blog")
 	posts, err := readPosts()
 	check(err)
+
+	posts = append(posts, GenerateArchive(posts))
+
 	check(prepareOutput())
 	check(processPosts(posts))
 

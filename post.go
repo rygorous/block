@@ -209,6 +209,60 @@ func LinkAndRenderPosts(posts []*Post) error {
 	return nil
 }
 
+// Archive generator
+type postDateSortSlice []*Post
+
+func (p postDateSortSlice) Len() int {
+	return len(p)
+}
+
+func (p postDateSortSlice) Less(i, j int) bool {
+	return p[i].Time.After(p[j].Time)
+}
+
+func (p postDateSortSlice) Swap(i, j int) {
+	p[i], p[j] = p[j], p[i]
+}
+
+func GenerateArchive(posts []*Post) *Post {
+	var archivedPosts postDateSortSlice
+
+	// Grab all the ID'ed posts and sort them by date
+	for _, post := range posts {
+		if post.Id != 0 {
+			archivedPosts = append(archivedPosts, post)
+		}
+	}
+
+	sort.Sort(archivedPosts)
+
+	// Generate archive markdown
+	buf := new(bytes.Buffer)
+	buf.WriteString("-pagename=archives\n")
+	buf.WriteString("# Archives\n")
+
+	var prevDate time.Time
+	for _, post := range archivedPosts {
+		// If the month has changed, print a heading.
+		if post.Time.Year() != prevDate.Year() || post.Time.Month() != prevDate.Month() {
+			buf.WriteString("\n### ")
+			buf.WriteString(post.Time.Format("January 2006"))
+			buf.WriteString("\n\n")
+		}
+
+		buf.WriteString(fmt.Sprintf("* [%%](*%d)\n", post.Id))
+		prevDate = post.Time
+	}
+
+	post, err := NewPost("archive", buf.Bytes())
+	// There should be no errors in the generated markup.
+	if err != nil {
+		panic(err)
+	}
+
+	return post
+}
+
 type postAnalyzer struct {
 	*blackfriday.Null
 	post *Post
