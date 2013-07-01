@@ -60,8 +60,9 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 		return nil, err
 	}
 
-	render := newHtmlRenderer(post)
-	post.Content = template.HTML(blackfriday.Markdown(post.markdown, render, extensions))
+	blackfriday.Markdown(post.markdown, newAnalyzer(post), extensions)
+
+	post.Content = template.HTML(blackfriday.Markdown(post.markdown, newHtmlRenderer(post), extensions))
 
 	return post, nil
 }
@@ -201,12 +202,46 @@ func LinkPosts(posts []*Post) error {
 	return nil
 }
 
+type postAnalyzer struct {
+	*blackfriday.Null
+	post *Post
+}
+
+func newAnalyzer(post *Post) blackfriday.Renderer {
+	return &postAnalyzer{Null: &blackfriday.Null{}, post: post}
+}
+
+func (p *postAnalyzer) Header(out *bytes.Buffer, text func() bool, level int) {
+	if level == 1 {
+		if p.post.Title != "" {
+			Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Filename)
+		}
+
+		out.Truncate(0)
+		text()
+		p.post.Title = string(out.Bytes())
+		out.Truncate(0)
+	}
+}
+
+func (p *postAnalyzer) DisplayMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
+}
+
+func (p *postAnalyzer) InlineMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
+}
+
+func (p *postAnalyzer) NormalText(out *bytes.Buffer, text []byte) {
+	out.Write(text)
+}
+
 type postHtmlRenderer struct {
 	*blackfriday.Html
 	post *Post
 }
 
-func newHtmlRenderer(post *Post) *postHtmlRenderer {
+func newHtmlRenderer(post *Post) blackfriday.Renderer {
 	return &postHtmlRenderer{
 		post: post,
 		Html: blackfriday.HtmlRenderer(
@@ -218,17 +253,7 @@ func newHtmlRenderer(post *Post) *postHtmlRenderer {
 func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int) {
 	if level != 1 {
 		p.Html.Header(out, text, level)
-		return
 	}
-
-	if p.post.Title != "" {
-		Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Filename)
-	}
-
-	marker := out.Len()
-	text()
-	p.post.Title = string(out.Bytes()[marker:])
-	out.Truncate(marker)
 }
 
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
@@ -236,14 +261,12 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 }
 
 func (p *postHtmlRenderer) DisplayMath(out *bytes.Buffer, text []byte) {
-	p.post.MathJax = true
 	out.WriteString("\\[")
 	p.Html.DisplayMath(out, text)
 	out.WriteString("\\]")
 }
 
 func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
-	p.post.MathJax = true
 	out.WriteString("\\(")
 	p.Html.InlineMath(out, text)
 	out.WriteString("\\)")
