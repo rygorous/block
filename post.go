@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
+type PostID int // 0 if not an indexed post.
+
 type Post struct {
 	Filename string
 	PageName string // name for standalone posts
-	Id       int    // id for regular posts, 0 otherwise
+	Id       PostID // id for regular posts, 0 otherwise
 	Time     time.Time
 	Title    string
 	Content  template.HTML
@@ -27,7 +29,7 @@ type Post struct {
 	MathJax bool
 
 	// Internals
-	parentId int
+	parentId PostID
 	markdown []byte // actual markdown code
 }
 
@@ -53,7 +55,7 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 
 	post := &Post{
 		Filename: filename,
-		Id:       id,
+		Id:       PostID(id),
 	}
 	err := post.parseContent(contents)
 	if err != nil {
@@ -61,9 +63,6 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 	}
 
 	blackfriday.Markdown(post.markdown, newAnalyzer(post), extensions)
-
-	post.Content = template.HTML(blackfriday.Markdown(post.markdown, newHtmlRenderer(post), extensions))
-
 	return post, nil
 }
 
@@ -106,9 +105,11 @@ func (post *Post) parseContent(contents []byte) error {
 			post.PageName = value
 
 		case "parent":
-			post.parentId, err = strconv.Atoi(value)
-			if err != nil || post.parentId <= 0 {
+			parentId, err := strconv.Atoi(value)
+			if err != nil || parentId <= 0 {
 				return fmt.Errorf("%q: invalid parent id", post.Filename)
+			} else {
+				post.parentId = PostID(parentId)
 			}
 
 		default:
@@ -169,9 +170,9 @@ func (p postSortSlice) Swap(i, j int) {
 	p[i], p[j] = p[j], p[i]
 }
 
-func findPost(posts []*Post, findId int) *Post {
+func findPost(posts []*Post, which PostID) *Post {
 	for _, post := range posts {
-		if post.Id == findId {
+		if post.Id == which {
 			return post
 		}
 	}
@@ -179,7 +180,7 @@ func findPost(posts []*Post, findId int) *Post {
 }
 
 // Perform inter-post linking
-func LinkPosts(posts []*Post) error {
+func LinkAndRenderPosts(posts []*Post) error {
 	// Sort all posts by ID in increasing order
 	sort.Sort(postSortSlice(posts))
 
@@ -196,6 +197,12 @@ func LinkPosts(posts []*Post) error {
 			} else {
 				post.Parent.Kids = append(post.Parent.Kids, post)
 			}
+		}
+
+		renderer := newHtmlRenderer(post, posts)
+		post.Content = template.HTML(blackfriday.Markdown(post.markdown, renderer, extensions))
+		if renderer.err != nil {
+			return renderer.err
 		}
 	}
 
@@ -238,12 +245,15 @@ func (p *postAnalyzer) NormalText(out *bytes.Buffer, text []byte) {
 
 type postHtmlRenderer struct {
 	*blackfriday.Html
-	post *Post
+	post  *Post
+	posts []*Post
+	err   error
 }
 
-func newHtmlRenderer(post *Post) blackfriday.Renderer {
+func newHtmlRenderer(post *Post, posts []*Post) *postHtmlRenderer {
 	return &postHtmlRenderer{
-		post: post,
+		post:  post,
+		posts: posts,
 		Html: blackfriday.HtmlRenderer(
 			blackfriday.HTML_USE_SMARTYPANTS|blackfriday.HTML_SMARTYPANTS_LATEX_DASHES,
 			"", "").(*blackfriday.Html),
@@ -256,7 +266,31 @@ func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int
 	}
 }
 
+func parsePostLink(link []byte) PostID {
+	if len(link) < 2 || link[0] != '*' {
+		return 0
+	}
+
+	if value, err := strconv.Atoi(string(link[1:])); err == nil {
+		return PostID(value)
+	}
+
+	return 0
+}
+
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
+	if linkTo := parsePostLink(link); linkTo != 0 {
+		if target := findPost(p.posts, linkTo); target != nil {
+			link = []byte(target.RenderedName())
+			title = []byte(target.Title)
+			if string(content) == "%" {
+				content = title
+			}
+		} else if p.err == nil {
+			p.err = fmt.Errorf("%q: contains link to post %d which does not exist.", p.post.Filename, linkTo)
+		}
+	}
+
 	p.Html.Link(out, link, title, content)
 }
 

@@ -82,7 +82,7 @@ func processPosts(posts []*Post) error {
 		return err
 	}
 
-	err = LinkPosts(posts)
+	err = LinkAndRenderPosts(posts)
 	if err != nil {
 		return err
 	}
