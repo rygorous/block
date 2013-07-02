@@ -34,9 +34,6 @@ type Blog struct {
 	files map[string]string // dst_path (relative to output) -> src_path (relative to blog root)
 }
 
-func configureBlog(b *Blog) {
-}
-
 func Warnf(msg string, args ...interface{}) {
 	fmt.Fprint(os.Stderr, "Warning: ")
 	fmt.Fprintf(os.Stderr, msg, args...)
@@ -87,7 +84,7 @@ func (blog *Blog) AddStaticFiles() error {
 	return err
 }
 
-// Reads the text files describing all post from the file system.
+// Reads the text files describing all posts from the file system.
 func (blog *Blog) ReadPosts() error {
 	files, err := filepath.Glob(filepath.Join(blog.PostDir, "*.md"))
 	if err != nil {
