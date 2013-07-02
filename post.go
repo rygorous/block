@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"github.com/rygorous/blackfriday"
 	"html/template"
-	"sort"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,9 @@ type Post struct {
 	Parent   *Post        // for series
 
 	// Flags for rendering
-	Active  bool
-	MathJax bool
+	Active    bool
+	MathJax   bool
+	BlockCode bool
 
 	// Internals
 	parentId PostID
@@ -146,121 +148,50 @@ func parseKeyValueLine(line string) (key string, value string) {
 	return
 }
 
-func (p *Post) RenderedName() string {
-	if p.Id != 0 {
-		return fmt.Sprintf("p%d.html", p.Id)
-	} else if p.PageName != "" {
-		return fmt.Sprintf("p%s.html", p.PageName)
+func (post *Post) RenderedName() string {
+	if post.Id != 0 {
+		return fmt.Sprintf("p%d.html", post.Id)
+	} else if post.PageName != "" {
+		return fmt.Sprintf("p%s.html", post.PageName)
 	}
 
 	return ""
 }
 
-type postSortSlice []*Post
-
-func (p postSortSlice) Len() int {
-	return len(p)
+func (post *Post) Render(blog *Blog) error {
+	renderer := newHtmlRenderer(post, blog)
+	post.Content = template.HTML(blackfriday.Markdown(post.markdown, renderer, extensions))
+	return renderer.err
 }
 
-func (p postSortSlice) Less(i, j int) bool {
-	return p[i].Id < p[j].Id
-}
-
-func (p postSortSlice) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
-}
-
-func findPost(posts []*Post, which PostID) *Post {
-	for _, post := range posts {
-		if post.Id == which {
-			return post
-		}
-	}
-	return nil
-}
-
-// Perform inter-post linking
-func LinkAndRenderPosts(posts []*Post) error {
-	// Sort all posts by ID in increasing order
-	sort.Sort(postSortSlice(posts))
-
-	// Determine links between posts.
-	for _, post := range posts {
-		// Determine permalink
-		post.Href = template.URL(post.RenderedName())
-
-		// Link children to their parents (and back)
-		if post.parentId != 0 {
-			post.Parent = findPost(posts, post.parentId)
-			if post.Parent == nil {
-				return fmt.Errorf("%q: parent id %d does not correspond to an existing post.", post.Filename, post.parentId)
-			} else {
-				post.Parent.Kids = append(post.Parent.Kids, post)
-			}
-		}
-
-		renderer := newHtmlRenderer(post, posts)
-		post.Content = template.HTML(blackfriday.Markdown(post.markdown, renderer, extensions))
-		if renderer.err != nil {
-			return renderer.err
-		}
+func parsePostLink(link []byte) PostID {
+	if len(link) < 2 || link[0] != '*' {
+		return 0
 	}
 
-	return nil
-}
-
-// Archive generator
-type postDateSortSlice []*Post
-
-func (p postDateSortSlice) Len() int {
-	return len(p)
-}
-
-func (p postDateSortSlice) Less(i, j int) bool {
-	return p[i].Time.After(p[j].Time)
-}
-
-func (p postDateSortSlice) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
-}
-
-func GenerateArchive(posts []*Post) *Post {
-	var archivedPosts postDateSortSlice
-
-	// Grab all the ID'ed posts and sort them by date
-	for _, post := range posts {
-		if post.Id != 0 {
-			archivedPosts = append(archivedPosts, post)
-		}
+	if value, err := strconv.Atoi(string(link[1:])); err == nil {
+		return PostID(value)
 	}
 
-	sort.Sort(archivedPosts)
+	return 0
+}
 
-	// Generate archive markdown
-	buf := new(bytes.Buffer)
-	buf.WriteString("-pagename=archives\n")
-	buf.WriteString("# Archives\n")
+func findImage(name string) (uri string, err error, w, h int) {
+	w, h = 0, 0
 
-	var prevDate time.Time
-	for _, post := range archivedPosts {
-		// If the month has changed, print a heading.
-		if post.Time.Year() != prevDate.Year() || post.Time.Month() != prevDate.Month() {
-			buf.WriteString("\n### ")
-			buf.WriteString(post.Time.Format("January 2006"))
-			buf.WriteString("\n\n")
-		}
-
-		buf.WriteString(fmt.Sprintf("* [%%](*%d)\n", post.Id))
-		prevDate = post.Time
+	// If it's an absolute URL, pass it through - but we don't know the size.
+	if url, urlerr := url.Parse(name); urlerr == nil && url.IsAbs() {
+		uri = name
+		return
 	}
 
-	post, err := NewPost("archive", buf.Bytes())
-	// There should be no errors in the generated markup.
-	if err != nil {
-		panic(err)
+	// Else we assume it's a regular path, which has to be relative.
+	if !path.IsAbs(name) {
+		err = fmt.Errorf("image %q needs to be either an absolute URL or a relative path.", name)
+		return
 	}
 
-	return post
+	return
 }
 
 type postAnalyzer struct {
@@ -270,6 +201,12 @@ type postAnalyzer struct {
 
 func newAnalyzer(post *Post) blackfriday.Renderer {
 	return &postAnalyzer{Null: &blackfriday.Null{}, post: post}
+}
+
+func (p *postAnalyzer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
+	if lang != "" {
+		p.post.BlockCode = true
+	}
 }
 
 func (p *postAnalyzer) Header(out *bytes.Buffer, text func() bool, level int) {
@@ -299,15 +236,15 @@ func (p *postAnalyzer) NormalText(out *bytes.Buffer, text []byte) {
 
 type postHtmlRenderer struct {
 	*blackfriday.Html
-	post  *Post
-	posts []*Post
-	err   error
+	post *Post
+	blog *Blog
+	err  error
 }
 
-func newHtmlRenderer(post *Post, posts []*Post) *postHtmlRenderer {
+func newHtmlRenderer(post *Post, blog *Blog) *postHtmlRenderer {
 	return &postHtmlRenderer{
-		post:  post,
-		posts: posts,
+		post: post,
+		blog: blog,
 		Html: blackfriday.HtmlRenderer(
 			blackfriday.HTML_USE_SMARTYPANTS|blackfriday.HTML_SMARTYPANTS_LATEX_DASHES,
 			"", "").(*blackfriday.Html),
@@ -320,21 +257,9 @@ func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int
 	}
 }
 
-func parsePostLink(link []byte) PostID {
-	if len(link) < 2 || link[0] != '*' {
-		return 0
-	}
-
-	if value, err := strconv.Atoi(string(link[1:])); err == nil {
-		return PostID(value)
-	}
-
-	return 0
-}
-
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
 	if linkTo := parsePostLink(link); linkTo != 0 {
-		if target := findPost(p.posts, linkTo); target != nil {
+		if target := p.blog.FindPostById(linkTo); target != nil {
 			link = []byte(target.RenderedName())
 			title = []byte(target.Title)
 			if string(content) == "%" {
