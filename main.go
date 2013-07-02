@@ -222,7 +222,6 @@ func (blog *Blog) WriteOutput() error {
 		if err != nil {
 			return err
 		}
-		defer outfile.Close()
 
 		post.Active = true
 
@@ -239,7 +238,9 @@ func (blog *Blog) WriteOutput() error {
 			postinfo.Next = blog.AllPosts[idx+1]
 		}
 
-		if err = tmpl.Execute(outfile, postinfo); err != nil {
+		err = tmpl.Execute(outfile, postinfo)
+		outfile.Close()
+		if err != nil {
 			return err
 		}
 
