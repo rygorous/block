@@ -29,16 +29,12 @@ type Blog struct {
 	Pages      []*Post // standalone pages
 	Recent     []*Post // list of recent posts
 	Series     []*Post // list of parent posts for series
+
+	// Files
+	files map[string]string // dst_path (relative to output) -> src_path (relative to blog root)
 }
 
 func configureBlog(b *Blog) {
-	// Could read this from config file.
-	b.Url = "http://blog.rygorous.org"
-	b.NumRecentPosts = 5
-	b.NumFeedPosts = 10
-	b.PostDir = "posts"
-	b.TemplateDir = "template"
-	b.OutDir = "out"
 }
 
 func Warnf(msg string, args ...interface{}) {
@@ -73,6 +69,22 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Add initial set of static files
+func (blog *Blog) AddStaticFiles() error {
+	blog.files = make(map[string]string)
+
+	// Just add all files in "static" dir
+	err := filepath.Walk(filepath.Join(blog.TemplateDir, "static"), func(path string, info os.FileInfo, err error) error {
+		if relpath, err := filepath.Rel(blog.TemplateDir, path); err == nil && !info.IsDir() {
+			blog.files[filepath.ToSlash(relpath)] = path
+		}
+
+		return err
+	})
+
+	return err
 }
 
 // Reads the text files describing all post from the file system.
@@ -168,7 +180,7 @@ type postInfo struct {
 	Blog *Blog
 }
 
-func (blog *Blog) RenderPosts() error {
+func (blog *Blog) WriteOutput() error {
 	// Render all posts' contents
 	for _, post := range blog.AllPosts {
 		if err := post.Render(blog); err != nil {
@@ -186,7 +198,26 @@ func (blog *Blog) RenderPosts() error {
 		return err
 	}
 
-	// Output files
+	// Wipe existing output dir
+	if err = os.RemoveAll(blog.OutDir); err != nil {
+		return err
+	}
+
+	// Static files
+	for dst, src := range blog.files {
+		// Make sure the path exists
+		outPath := filepath.Join(blog.OutDir, filepath.FromSlash(dst))
+		if err = os.MkdirAll(filepath.Dir(outPath), 0733); err != nil {
+			return err
+		}
+
+		// Copy the file
+		if err = copyFile(outPath, src); err != nil {
+			return err
+		}
+	}
+
+	// Output posts
 	for idx, post := range blog.AllPosts {
 		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
 
@@ -235,36 +266,6 @@ func copyFile(dstname, srcname string) error {
 	defer dstf.Close()
 
 	_, err = io.Copy(dstf, srcf)
-	return err
-}
-
-func (blog *Blog) PrepareOutput() error {
-	err := os.RemoveAll(blog.OutDir)
-	if err != nil {
-		return err
-	}
-
-	// Copy all files from the template dir, except for the actual template html.
-	err = filepath.Walk(blog.TemplateDir, func(path string, info os.FileInfo, err error) error {
-		relpath, err := filepath.Rel(blog.TemplateDir, path)
-		if err != nil {
-			return err
-		}
-
-		if relpath == "template.html" {
-			return nil
-		}
-
-		outpath := filepath.Join(blog.OutDir, relpath)
-		if info.IsDir() {
-			err = os.MkdirAll(outpath, 0733)
-		} else {
-			err = copyFile(outpath, path)
-		}
-
-		return err
-	})
-
 	return err
 }
 
@@ -331,14 +332,21 @@ func check(err error) {
 func main() {
 	os.Chdir("c:/Store/Blog")
 
-	blog := &Blog{}
-	configureBlog(blog)
+	// Could (should?) read this from config file.
+	blog := &Blog{
+		Url:            "http://blog.rygorous.org",
+		NumRecentPosts: 5,
+		NumFeedPosts:   10,
+		PostDir:        "posts",
+		TemplateDir:    "template",
+		OutDir:         "out",
+	}
 
+	check(blog.AddStaticFiles())
 	check(blog.ReadPosts())
 	check(blog.GenerateArchive())
-	check(blog.PrepareOutput())
 	check(blog.LinkPosts())
-	check(blog.RenderPosts())
+	check(blog.WriteOutput())
 
 	fmt.Println("Done!")
 }
