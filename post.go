@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/rygorous/blackfriday"
+	"html"
 	"html/template"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -148,11 +154,23 @@ func parseKeyValueLine(line string) (key string, value string) {
 	return
 }
 
+// Name of the renderer HTML file for this post
 func (post *Post) RenderedName() string {
 	if post.Id != 0 {
 		return fmt.Sprintf("p%d.html", post.Id)
 	} else if post.PageName != "" {
 		return fmt.Sprintf("p%s.html", post.PageName)
+	}
+
+	return ""
+}
+
+// Name of the asset path for this post
+func (post *Post) AssetPath() string {
+	if post.Id != 0 {
+		return strconv.Itoa(int(post.Id))
+	} else {
+		return post.PageName
 	}
 
 	return ""
@@ -176,9 +194,7 @@ func parsePostLink(link []byte) PostID {
 	return 0
 }
 
-func findImage(name string) (uri string, err error, w, h int) {
-	w, h = 0, 0
-
+func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg image.Config) {
 	// If it's an absolute URL, pass it through - but we don't know the size.
 	if url, urlerr := url.Parse(name); urlerr == nil && url.IsAbs() {
 		uri = name
@@ -186,11 +202,28 @@ func findImage(name string) (uri string, err error, w, h int) {
 	}
 
 	// Else we assume it's a regular path, which has to be relative.
-	if !path.IsAbs(name) {
-		err = fmt.Errorf("image %q needs to be either an absolute URL or a relative path.", name)
+	if path.IsAbs(name) {
+		err = fmt.Errorf("%q: image %q needs to be either an absolute URL or a relative path.", post.Filename, name)
 		return
 	}
 
+	// Search first in asset dirs for this post, then parent posts
+	for p := post; p != nil; p = p.Parent {
+		var file *os.File
+		filepath := filepath.Join(blog.PostDir, p.AssetPath(), name)
+		if file, err = os.Open(filepath); err == nil {
+			cfg, _, err = image.DecodeConfig(file)
+			file.Close()
+
+			if err == nil {
+				uri = path.Join(p.AssetPath(), name)
+				err = blog.AddStaticFile(uri, filepath)
+			}
+			return
+		}
+	}
+
+	err = fmt.Errorf("%q: Image %q not found.", post.Filename, name)
 	return
 }
 
@@ -255,6 +288,31 @@ func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int
 	if level != 1 {
 		p.Html.Header(out, text, level)
 	}
+}
+
+func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
+	uri, err, cfg := findImage(p.blog, p.post, string(link))
+	if err != nil {
+		p.err = err
+		return
+	}
+
+	out.WriteString("<img src=\"")
+	out.WriteString(html.EscapeString(uri))
+	out.WriteString("\" alt=\"")
+	out.WriteString(html.EscapeString(string(alt)))
+	if len(title) > 0 {
+		out.WriteString("\" title=\"")
+		out.WriteString(html.EscapeString(string(title)))
+	}
+	out.WriteByte('"')
+	if cfg.Width > 0 && cfg.Height > 0 {
+		out.WriteString(" width=")
+		out.WriteString(strconv.Itoa(cfg.Width))
+		out.WriteString(" height=")
+		out.WriteString(strconv.Itoa(cfg.Height))
+	}
+	out.WriteByte('>')
 }
 
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {

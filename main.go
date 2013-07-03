@@ -321,6 +321,18 @@ func (blog *Blog) GenerateArchive() error {
 	return nil
 }
 
+// Adds a static file to the blog.
+func (blog *Blog) AddStaticFile(webpath, srcpath string) error {
+	if val, in := blog.files[webpath]; in {
+		if val != srcpath {
+			return fmt.Errorf("Double definition for path %q - assigned to both %q and %q.", webpath, val, srcpath)
+		}
+	} else {
+		blog.files[webpath] = srcpath
+	}
+	return nil
+}
+
 func check(err error) {
 	if err != nil {
 		panic(err)
