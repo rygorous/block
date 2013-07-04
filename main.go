@@ -17,11 +17,10 @@ type Blog struct {
 	Url            string
 	NumRecentPosts int
 	NumFeedPosts   int
-
-	// Directories
-	PostDir     string
-	TemplateDir string
-	OutDir      string
+	MaxImageWidth  int // if images are wider than this, build a thumbnail.
+	PostDir        string
+	TemplateDir    string
+	OutDir         string
 
 	// Posts
 	AllPosts   []*Post // master list of all posts in the blog
@@ -347,6 +346,7 @@ func main() {
 		Url:            "http://blog.rygorous.org",
 		NumRecentPosts: 5,
 		NumFeedPosts:   10,
+		MaxImageWidth:  700,
 		PostDir:        "posts",
 		TemplateDir:    "template",
 		OutDir:         "out",
