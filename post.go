@@ -22,15 +22,16 @@ import (
 type PostID int // 0 if not an indexed post.
 
 type Post struct {
-	Filename string
-	PageName string // name for standalone posts
-	Id       PostID // id for regular posts, 0 otherwise
-	Time     time.Time
-	Title    string
-	Content  template.HTML
-	Href     template.URL // permalink
-	Kids     []*Post      // for series
-	Parent   *Post        // for series
+	Filename  string
+	PageName  string // name for standalone posts
+	Id        PostID // id for regular posts, 0 otherwise
+	Published time.Time
+	Updated   time.Time
+	Title     string
+	Content   template.HTML
+	Href      template.URL // permalink
+	Kids      []*Post      // for series
+	Parent    *Post        // for series
 
 	// Flags for rendering
 	Active    bool
@@ -75,6 +76,21 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 	return post, nil
 }
 
+var timeFormats = []string{
+	"2006-01-02",
+	"2006-01-02 15:04",
+	"2006-01-02 15:04:05",
+}
+
+func parseTime(value string) (time.Time, error) {
+	for _, fmt := range timeFormats {
+		if time, err := time.Parse(fmt, value); err == nil {
+			return time, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("couldn't parse time %q", value)
+}
+
 func (post *Post) parseContent(contents []byte) error {
 	rest := contents
 
@@ -105,9 +121,13 @@ func (post *Post) parseContent(contents []byte) error {
 
 		switch key {
 		case "time":
-			post.Time, err = time.Parse("2006-01-02", value)
-			if err != nil {
-				return fmt.Errorf("%q: error while trying to parse time: %q", post.Filename, err.Error())
+			if post.Published, err = parseTime(value); err != nil {
+				return fmt.Errorf("%q: %s", post.Filename, err.Error())
+			}
+
+		case "updated":
+			if post.Updated, err = parseTime(value); err != nil {
+				return fmt.Errorf("%q: %s", post.Filename, err.Error())
 			}
 
 		case "pagename":
@@ -125,6 +145,11 @@ func (post *Post) parseContent(contents []byte) error {
 			return fmt.Errorf("%q: unknown property %q", post.Filename, key)
 		}
 	}
+
+	if post.Updated.IsZero() {
+		post.Updated = post.Published
+	}
+
 	post.markdown = rest
 
 	return post.validate()
@@ -132,8 +157,8 @@ func (post *Post) parseContent(contents []byte) error {
 
 func (post *Post) validate() error {
 	if post.Id != 0 {
-		if post.Time.IsZero() {
-			return fmt.Errorf("post %q doesn't have a time set", post.Filename)
+		if post.Published.IsZero() {
+			return fmt.Errorf("post %q doesn't have a publication time set", post.Filename)
 		}
 	} else {
 		if post.PageName == "" {

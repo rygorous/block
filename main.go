@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	_ "code.google.com/p/go.blog/pkg/atom"
 )
 
 type Blog struct {
@@ -31,6 +33,8 @@ type Blog struct {
 
 	// Files
 	files map[string]string // dst_path (relative to output) -> src_path (relative to blog root)
+
+	atomFeed string
 }
 
 func Warnf(msg string, args ...interface{}) {
@@ -39,19 +43,11 @@ func Warnf(msg string, args ...interface{}) {
 	fmt.Fprint(os.Stderr, "\n")
 }
 
-type postSortSlice []*Post
+type postsById []*Post
 
-func (p postSortSlice) Len() int {
-	return len(p)
-}
-
-func (p postSortSlice) Less(i, j int) bool {
-	return p[i].Id < p[j].Id
-}
-
-func (p postSortSlice) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
-}
+func (p postsById) Len() int           { return len(p) }
+func (p postsById) Less(i, j int) bool { return p[i].Id < p[j].Id }
+func (p postsById) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func reversePosts(posts []*Post) {
 	n := len(posts)
@@ -110,7 +106,7 @@ func (blog *Blog) ReadPosts() error {
 // Perform inter-post linkage.
 func (blog *Blog) LinkPosts() error {
 	// Sort all posts by ID in increasing order.
-	sort.Sort(postSortSlice(blog.AllPosts))
+	sort.Sort(postsById(blog.AllPosts))
 
 	// Handle links between posts
 	for _, post := range blog.AllPosts {
@@ -213,7 +209,10 @@ func (blog *Blog) WriteOutput() error {
 		}
 	}
 
-	// Output posts
+	return blog.writeOutputPosts(tmpl)
+}
+
+func (blog *Blog) writeOutputPosts(tmpl *template.Template) error {
 	for idx, post := range blog.AllPosts {
 		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
 
@@ -245,7 +244,7 @@ func (blog *Blog) WriteOutput() error {
 			return err
 		}
 
-		// If this is the most recent post, copy it to the index post.
+		// If this is the most recent post, make a copy for index.html.
 		if post == blog.MostRecent {
 			err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname)
 			if err != nil {
@@ -254,6 +253,10 @@ func (blog *Blog) WriteOutput() error {
 		}
 	}
 
+	return nil
+}
+
+func (blog *Blog) renderAtomFeed() error {
 	return nil
 }
 
@@ -274,23 +277,15 @@ func copyFile(dstname, srcname string) error {
 	return err
 }
 
-type postDateSortSlice []*Post
+type postsByPublishDate []*Post
 
-func (p postDateSortSlice) Len() int {
-	return len(p)
-}
-
-func (p postDateSortSlice) Less(i, j int) bool {
-	return p[i].Time.After(p[j].Time)
-}
-
-func (p postDateSortSlice) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
-}
+func (p postsByPublishDate) Len() int           { return len(p) }
+func (p postsByPublishDate) Less(i, j int) bool { return p[i].Published.After(p[j].Published) }
+func (p postsByPublishDate) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // Generates the "Archive" standalone page and adds it to the blog
 func (blog *Blog) GenerateArchive() error {
-	var archivedPosts postDateSortSlice
+	var archivedPosts []*Post
 
 	// Grab all the ID'ed posts and sort them by date
 	for _, post := range blog.AllPosts {
@@ -299,7 +294,7 @@ func (blog *Blog) GenerateArchive() error {
 		}
 	}
 
-	sort.Sort(archivedPosts)
+	sort.Sort(postsByPublishDate(archivedPosts))
 
 	// Generate archive markdown
 	buf := new(bytes.Buffer)
@@ -309,14 +304,14 @@ func (blog *Blog) GenerateArchive() error {
 	var prevDate time.Time
 	for _, post := range archivedPosts {
 		// If the month has changed, print a heading.
-		if post.Time.Year() != prevDate.Year() || post.Time.Month() != prevDate.Month() {
+		if post.Published.Year() != prevDate.Year() || post.Published.Month() != prevDate.Month() {
 			buf.WriteString("\n### ")
-			buf.WriteString(post.Time.Format("January 2006"))
+			buf.WriteString(post.Published.Format("January 2006"))
 			buf.WriteString("\n\n")
 		}
 
 		buf.WriteString(fmt.Sprintf("* [%%](*%d)\n", post.Id))
-		prevDate = post.Time
+		prevDate = post.Published
 	}
 
 	post, err := NewPost("archive", buf.Bytes())
