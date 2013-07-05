@@ -362,13 +362,21 @@ func copyFile(dstname, srcname string) error {
 
 // Generates the "Archive" standalone page and adds it to the blog
 func (blog *Blog) GenerateArchive() error {
+	posts := append([]*Post(nil), blog.AllPosts...)
+	sort.Sort(postsByPublishDate(posts))
+
 	// Generate archive markdown
 	buf := new(bytes.Buffer)
 	buf.WriteString("-pagename=archives\n")
 	buf.WriteString("# Archives\n")
 
 	var prevDate time.Time
-	for _, post := range blog.PostsByDate {
+	for _, post := range posts {
+		// Standalone pages don't get indexed
+		if post.Id == 0 {
+			continue
+		}
+
 		// If the month has changed, print a heading.
 		if post.Published.Year() != prevDate.Year() || post.Published.Month() != prevDate.Month() {
 			buf.WriteString("\n### ")
