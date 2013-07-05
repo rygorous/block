@@ -217,12 +217,11 @@ func (blog *Blog) WriteOutput() error {
 	for idx, post := range blog.AllPosts {
 		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
 
-		outfile, err := os.Create(filepath.Join(blog.OutDir, post.RenderedName()))
+		outname := filepath.Join(blog.OutDir, post.RenderedName())
+		outfile, err := os.Create(outname)
 		if err != nil {
 			return err
 		}
-
-		post.Active = true
 
 		postinfo := postInfo{
 			Post: post,
@@ -237,13 +236,22 @@ func (blog *Blog) WriteOutput() error {
 			postinfo.Next = blog.AllPosts[idx+1]
 		}
 
+		post.Active = true
 		err = tmpl.Execute(outfile, postinfo)
+		post.Active = false
+
 		outfile.Close()
 		if err != nil {
 			return err
 		}
 
-		post.Active = false
+		// If this is the most recent post, copy it to the index post.
+		if post == blog.MostRecent {
+			err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

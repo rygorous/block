@@ -325,8 +325,7 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 
 	resized := false
 	if cfg.Width > p.blog.MaxImageWidth {
-		Warnf("image %q is wider (%d pixels) than maximum of %d pixels.", uri, cfg.Width, p.blog.MaxImageWidth)
-
+		// Image is wider than maximum, generate resampled version.
 		out.WriteString("<a href=\"")
 		out.WriteString(uri)
 		out.WriteString("\">")
