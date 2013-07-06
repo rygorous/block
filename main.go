@@ -125,10 +125,10 @@ func (blog *Blog) LinkPosts() error {
 		}
 
 		// Link children to their parents (and back)
-		if post.parentId != 0 {
+		if post.parentId != "" {
 			post.Parent = blog.FindPostById(post.parentId)
 			if post.Parent == nil {
-				return fmt.Errorf("%q: parent id %d does not correspond to an existing post.", post.Filename, post.parentId)
+				return fmt.Errorf("%q: parent id %q does not correspond to an existing post.", post.Id, post.parentId)
 			} else {
 				post.Parent.Kids = append(post.Parent.Kids, post)
 			}
@@ -239,7 +239,7 @@ func (blog *Blog) writeOutputPosts() error {
 	// Render regular posts
 	recent := blog.PostsByDate[:max(len(blog.PostsByDate), blog.NumRecentPosts)]
 	for idx, post := range blog.PostsByDate {
-		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
+		fmt.Printf("processing %s: %q\n", post.Id, post.Title)
 
 		postinfo := postInfo{
 			Post:   post,
@@ -396,7 +396,7 @@ func (blog *Blog) GenerateArchive() error {
 			buf.WriteString("\n\n")
 		}
 
-		buf.WriteString(fmt.Sprintf("* [%%](*%d)\n", post.Id))
+		buf.WriteString(fmt.Sprintf("* [%%](*%s)\n", post.Id))
 		prevDate = post.Published
 	}
 

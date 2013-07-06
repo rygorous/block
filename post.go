@@ -19,12 +19,11 @@ import (
 	"time"
 )
 
-type PostID int // 0 if not an indexed post.
+type PostID string // Should be unique
 
 type Post struct {
-	Filename  string
 	PageName  string // name for standalone posts
-	Id        PostID // id for regular posts, 0 otherwise
+	Id        PostID
 	Published time.Time
 	Updated   time.Time
 	Title     string
@@ -54,18 +53,13 @@ const (
 
 func NewPost(filename string, contents []byte) (*Post, error) {
 	// attempt to parse ID from file name (if given)
-	id := 0
-	if idx := strings.Index(filename, "-"); idx != -1 {
-		val, err := strconv.Atoi(filename[:idx])
-		if err != nil {
-			return nil, fmt.Errorf("post %q has an ill-formed ID: %q", filename, filename[:idx])
-		}
-		id = val
+	id := filename
+	if idx := strings.LastIndex(filename, "."); idx != -1 {
+		id = filename[:idx]
 	}
 
 	post := &Post{
-		Filename: filename,
-		Id:       PostID(id),
+		Id: PostID(id),
 	}
 	err := post.parseContent(contents)
 	if err != nil {
@@ -118,33 +112,28 @@ func (post *Post) parseContent(contents []byte) error {
 
 		key, value := parseKeyValueLine(line)
 		if key == "" {
-			return fmt.Errorf("%q: configuration line %q ill-formed", post.Filename, line)
+			return fmt.Errorf("%q: configuration line %q ill-formed", post.Id, line)
 		}
 
 		switch key {
 		case "time":
 			if post.Published, err = parseTime(value); err != nil {
-				return fmt.Errorf("%q: %s", post.Filename, err.Error())
+				return fmt.Errorf("%q: %s", post.Id, err.Error())
 			}
 
 		case "updated":
 			if post.Updated, err = parseTime(value); err != nil {
-				return fmt.Errorf("%q: %s", post.Filename, err.Error())
+				return fmt.Errorf("%q: %s", post.Id, err.Error())
 			}
 
 		case "pagename":
 			post.PageName = value
 
 		case "parent":
-			parentId, err := strconv.Atoi(value)
-			if err != nil || parentId <= 0 {
-				return fmt.Errorf("%q: invalid parent id", post.Filename)
-			} else {
-				post.parentId = PostID(parentId)
-			}
+			post.parentId = PostID(value)
 
 		default:
-			return fmt.Errorf("%q: unknown property %q", post.Filename, key)
+			return fmt.Errorf("%q: unknown property %q", post.Id, key)
 		}
 	}
 
@@ -160,14 +149,9 @@ func (post *Post) parseContent(contents []byte) error {
 func (post *Post) validate() error {
 	if !post.Standalone() {
 		if post.Published.IsZero() {
-			return fmt.Errorf("post %q doesn't have a publication time set", post.Filename)
-		}
-	} else {
-		if post.PageName == "" {
-			return fmt.Errorf("post %q has neither an ID nor a page name", post.Filename)
+			return fmt.Errorf("post %q doesn't have a publication time set", post.Id)
 		}
 	}
-
 	return nil
 }
 
@@ -189,24 +173,12 @@ func (post *Post) Standalone() bool {
 
 // Name of the renderer HTML file for this post
 func (post *Post) RenderedName() string {
-	if !post.Standalone() {
-		return fmt.Sprintf("p%d.html", post.Id)
-	} else {
-		return fmt.Sprintf("p%s.html", post.PageName)
-	}
-
-	return ""
+	return "p" + string(post.Id) + ".html"
 }
 
 // Name of the asset path for this post
 func (post *Post) AssetPath() string {
-	if !post.Standalone() {
-		return strconv.Itoa(int(post.Id))
-	} else {
-		return post.PageName
-	}
-
-	return ""
+	return string(post.Id)
 }
 
 func (post *Post) Render(blog *Blog) error {
@@ -217,14 +189,10 @@ func (post *Post) Render(blog *Blog) error {
 
 func parsePostLink(link []byte) PostID {
 	if len(link) < 2 || link[0] != '*' {
-		return 0
+		return ""
 	}
 
-	if value, err := strconv.Atoi(string(link[1:])); err == nil {
-		return PostID(value)
-	}
-
-	return 0
+	return PostID(link[1:])
 }
 
 func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg image.Config) {
@@ -236,7 +204,7 @@ func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg 
 
 	// Else we assume it's a regular path, which has to be relative.
 	if path.IsAbs(name) {
-		err = fmt.Errorf("%q: image %q needs to be either an absolute URL or a relative path.", post.Filename, name)
+		err = fmt.Errorf("%q: image %q needs to be either an absolute URL or a relative path.", post.Id, name)
 		return
 	}
 
@@ -256,7 +224,7 @@ func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg 
 		}
 	}
 
-	err = fmt.Errorf("%q: Image %q not found.", post.Filename, name)
+	err = fmt.Errorf("%q: Image %q not found.", post.Id, name)
 	return
 }
 
@@ -303,7 +271,7 @@ func (p *postAnalyzer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
 func (p *postAnalyzer) Header(out *bytes.Buffer, text func() bool, level int) {
 	if level == 1 {
 		if p.post.Title != "" {
-			Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Filename)
+			Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Id)
 		}
 
 		out.Truncate(0)
@@ -409,14 +377,14 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 }
 
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
-	if linkTo := parsePostLink(link); linkTo != 0 {
+	if linkTo := parsePostLink(link); linkTo != "" {
 		if target := p.blog.FindPostById(linkTo); target != nil {
 			link = []byte(target.RenderedName())
 			if string(content) == "%" {
 				content = []byte(target.Title)
 			}
 		} else if p.err == nil {
-			p.err = fmt.Errorf("%q: contains link to post %d which does not exist.", p.post.Filename, linkTo)
+			p.err = fmt.Errorf("%q: contains link to post %q which does not exist.", p.post.Id, linkTo)
 		}
 	}
 
