@@ -392,13 +392,13 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 }
 
 func (p *postHtmlRenderer) DisplayMath(out *bytes.Buffer, text []byte) {
-	out.WriteString("\\[")
-	p.Html.DisplayMath(out, text)
-	out.WriteString("\\]")
+	out.WriteString("<script type=\"math/tex; mode=display\">")
+	out.Write(text)
+	out.WriteString("</script>")
 }
 
 func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
-	out.WriteString("\\(")
-	p.Html.InlineMath(out, text)
-	out.WriteString("\\)")
+	out.WriteString("<script type=\"math/tex\">")
+	out.Write(text)
+	out.WriteString("</script>")
 }
