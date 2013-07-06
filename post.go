@@ -72,7 +72,9 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 		return nil, err
 	}
 
+	post.Href = template.URL(post.RenderedName())
 	blackfriday.Markdown(post.markdown, newAnalyzer(post), extensions)
+
 	return post, nil
 }
 
@@ -156,7 +158,7 @@ func (post *Post) parseContent(contents []byte) error {
 }
 
 func (post *Post) validate() error {
-	if post.Id != 0 {
+	if !post.Standalone() {
 		if post.Published.IsZero() {
 			return fmt.Errorf("post %q doesn't have a publication time set", post.Filename)
 		}
@@ -180,11 +182,16 @@ func parseKeyValueLine(line string) (key string, value string) {
 	return
 }
 
+// Is this page a standalone page?
+func (post *Post) Standalone() bool {
+	return post.PageName != ""
+}
+
 // Name of the renderer HTML file for this post
 func (post *Post) RenderedName() string {
-	if post.Id != 0 {
+	if !post.Standalone() {
 		return fmt.Sprintf("p%d.html", post.Id)
-	} else if post.PageName != "" {
+	} else {
 		return fmt.Sprintf("p%s.html", post.PageName)
 	}
 
@@ -193,7 +200,7 @@ func (post *Post) RenderedName() string {
 
 // Name of the asset path for this post
 func (post *Post) AssetPath() string {
-	if post.Id != 0 {
+	if !post.Standalone() {
 		return strconv.Itoa(int(post.Id))
 	} else {
 		return post.PageName

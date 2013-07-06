@@ -115,11 +115,8 @@ func (blog *Blog) LinkPosts() error {
 
 	// Handle links between posts
 	for _, post := range blog.AllPosts {
-		// Determine permalink
-		post.Href = template.URL(post.RenderedName())
-
-		if post.PageName != "" {
-			// If a post has a page name, it's a standalone page.
+		// Which index does this end up in?
+		if post.Standalone() {
 			blog.Pages = append(blog.Pages, post)
 		} else {
 			// Non-standalone pages get indexed.
@@ -214,6 +211,7 @@ func (blog *Blog) WriteOutput() error {
 	return nil
 }
 
+// Writes all posts to the output
 func (blog *Blog) writeOutputPosts() error {
 	tmpl_text, err := ioutil.ReadFile(filepath.Join(blog.TemplateDir, "template.html"))
 	if err != nil {
@@ -225,16 +223,23 @@ func (blog *Blog) writeOutputPosts() error {
 		return err
 	}
 
-	recent := blog.PostsByDate[:max(len(blog.PostsByDate), blog.NumRecentPosts)]
+	// Render pages
+	for _, page := range blog.Pages {
+		fmt.Printf("processing %q\n", page.Title)
+		postinfo := postInfo{
+			Post: page,
+			Blog: blog,
+		}
 
-	for idx, post := range blog.AllPosts {
-		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
-
-		outname := filepath.Join(blog.OutDir, post.RenderedName())
-		outfile, err := os.Create(outname)
-		if err != nil {
+		if err = blog.writeOutputPost(&postinfo, tmpl); err != nil {
 			return err
 		}
+	}
+
+	// Render regular posts
+	recent := blog.PostsByDate[:max(len(blog.PostsByDate), blog.NumRecentPosts)]
+	for idx, post := range blog.PostsByDate {
+		fmt.Printf("processing %d: %q\n", post.Id, post.Title)
 
 		postinfo := postInfo{
 			Post:   post,
@@ -242,29 +247,44 @@ func (blog *Blog) writeOutputPosts() error {
 			Recent: recent,
 		}
 
-		if idx > 0 && blog.AllPosts[idx-1].Id > 0 {
-			postinfo.Prev = blog.AllPosts[idx-1]
+		if idx > 0 {
+			postinfo.Next = blog.PostsByDate[idx-1]
 		}
 
-		if idx+1 < len(blog.AllPosts) && blog.AllPosts[idx+1].Id > 0 {
-			postinfo.Next = blog.AllPosts[idx+1]
+		if idx+1 < len(blog.PostsByDate) {
+			postinfo.Prev = blog.PostsByDate[idx+1]
 		}
 
-		post.Active = true
-		err = tmpl.Execute(outfile, postinfo)
-		post.Active = false
-
-		outfile.Close()
-		if err != nil {
+		if err = blog.writeOutputPost(&postinfo, tmpl); err != nil {
 			return err
 		}
+	}
 
-		// If this is the most recent post, make a copy for index.html.
-		if post == blog.MostRecent {
-			err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname)
-			if err != nil {
-				return err
-			}
+	return nil
+}
+
+// Writes a single post to the output
+func (blog *Blog) writeOutputPost(info *postInfo, tmpl *template.Template) error {
+	outname := filepath.Join(blog.OutDir, info.Post.RenderedName())
+	outfile, err := os.Create(outname)
+	if err != nil {
+		return err
+	}
+
+	info.Post.Active = true
+	err = tmpl.Execute(outfile, info)
+	info.Post.Active = false
+
+	outfile.Close()
+	if err != nil {
+		return err
+	}
+
+	// If this is the most recent post, make a copy for index.html.
+	if info.Post == blog.MostRecent {
+		err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -362,21 +382,13 @@ func copyFile(dstname, srcname string) error {
 
 // Generates the "Archive" standalone page and adds it to the blog
 func (blog *Blog) GenerateArchive() error {
-	posts := append([]*Post(nil), blog.AllPosts...)
-	sort.Sort(postsByPublishDate(posts))
-
 	// Generate archive markdown
 	buf := new(bytes.Buffer)
 	buf.WriteString("-pagename=archives\n")
 	buf.WriteString("# Archives\n")
 
 	var prevDate time.Time
-	for _, post := range posts {
-		// Standalone pages don't get indexed
-		if post.Id == 0 {
-			continue
-		}
-
+	for _, post := range blog.PostsByDate {
 		// If the month has changed, print a heading.
 		if post.Published.Year() != prevDate.Year() || post.Published.Month() != prevDate.Month() {
 			buf.WriteString("\n### ")
@@ -394,6 +406,7 @@ func (blog *Blog) GenerateArchive() error {
 	}
 
 	blog.AllPosts = append(blog.AllPosts, post)
+	blog.Pages = append(blog.Pages, post)
 	return nil
 }
 
@@ -436,8 +449,8 @@ func main() {
 
 	check(blog.AddStaticFiles())
 	check(blog.ReadPosts())
-	check(blog.GenerateArchive())
 	check(blog.LinkPosts())
+	check(blog.GenerateArchive())
 	check(blog.WriteOutput())
 
 	fmt.Println("Done!")
