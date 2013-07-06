@@ -61,8 +61,8 @@ func (p postsByPublishDate) Len() int           { return len(p) }
 func (p postsByPublishDate) Less(i, j int) bool { return p[i].Published.After(p[j].Published) }
 func (p postsByPublishDate) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func max(a, b int) int {
-	if a > b {
+func min(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b
@@ -237,7 +237,7 @@ func (blog *Blog) writeOutputPosts() error {
 	}
 
 	// Render regular posts
-	recent := blog.PostsByDate[:max(len(blog.PostsByDate), blog.NumRecentPosts)]
+	recent := blog.PostsByDate[:min(len(blog.PostsByDate), blog.NumRecentPosts)]
 	for idx, post := range blog.PostsByDate {
 		fmt.Printf("processing %s: %q\n", post.Id, post.Title)
 
