@@ -366,6 +366,14 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 		resized = true
 	}
 
+	class := []byte(nil)
+	if len(alt) > 0 && alt[0] == '{' {
+		if end := bytes.IndexByte(alt, '}'); end != -1 {
+			class = alt[1:end]
+			alt = alt[end+1:]
+		}
+	}
+
 	out.WriteString("<img src=\"")
 	out.WriteString(html.EscapeString(uri))
 	out.WriteString("\" alt=\"")
@@ -381,6 +389,11 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 		out.WriteString(" height=")
 		out.WriteString(strconv.Itoa(cfg.Height))
 	}
+	if len(class) > 0 {
+		out.WriteString(" class=\"")
+		out.WriteString(html.EscapeString(string(class)))
+		out.WriteByte('"')
+	}
 	out.WriteByte('>')
 
 	if resized {
@@ -392,9 +405,8 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 	if linkTo := parsePostLink(link); linkTo != 0 {
 		if target := p.blog.FindPostById(linkTo); target != nil {
 			link = []byte(target.RenderedName())
-			title = []byte(target.Title)
 			if string(content) == "%" {
-				content = title
+				content = []byte(target.Title)
 			}
 		} else if p.err == nil {
 			p.err = fmt.Errorf("%q: contains link to post %d which does not exist.", p.post.Filename, linkTo)
