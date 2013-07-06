@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/disintegration/imaging"
 	"github.com/rygorous/blackfriday"
 	"html"
 	"html/template"
@@ -228,31 +227,6 @@ func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg 
 	return
 }
 
-func makeThumbnail(blog *Blog, in_uri string) (uri string, err error, cfg image.Config) {
-	var file *os.File
-	fspath := blog.files[in_uri]
-	if file, err = os.Open(fspath); err == nil {
-		var src image.Image
-		if src, _, err = image.Decode(file); err == nil {
-			dst := imaging.Resize(src, blog.MaxImageWidth, 0, imaging.MitchellNetravali)
-			extra := ".thumb.jpg"
-			if !dst.Opaque() {
-				extra = ".thumb.png"
-			}
-
-			fsthumb := fspath + extra
-			uri = in_uri + extra
-			imaging.Save(dst, fsthumb)
-			blog.AddStaticFile(uri, fsthumb)
-
-			cfg.Width = dst.Bounds().Dx()
-			cfg.Height = dst.Bounds().Dy()
-		}
-	}
-
-	return
-}
-
 type postAnalyzer struct {
 	*blackfriday.Null
 	post *Post
@@ -325,7 +299,8 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 
 	resized := false
 	if cfg.Width > p.blog.MaxImageWidth {
-		// Image is wider than maximum, generate resampled version.
+		// Image is wider than maximum, specify smaller size
+		// and insert a link to the full-size version
 		out.WriteString("<a href=\"")
 		out.WriteString(uri)
 		out.WriteString("\">")
@@ -333,10 +308,9 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 			title = []byte("Click for full-size version.")
 		}
 
-		if uri, err, cfg = makeThumbnail(p.blog, uri); err != nil {
-			p.err = err
-			return
-		}
+		// Figure out new size (aspect-ratio preserving)
+		cfg.Height = int((int64(cfg.Height)*int64(p.blog.MaxImageWidth) + int64(cfg.Width/2)) / int64(cfg.Width))
+		cfg.Width = p.blog.MaxImageWidth
 
 		resized = true
 	}
