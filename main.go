@@ -302,11 +302,6 @@ func (blog *Blog) writeAtomFeed() error {
 	return nil
 }
 
-func summary(post *Post) string {
-	// NYI
-	return ""
-}
-
 func (blog *Blog) renderAtomFeed() error {
 	feed := atom.Feed{
 		Title: blog.Title,
@@ -343,10 +338,6 @@ func (blog *Blog) renderAtomFeed() error {
 			}},
 			Published: atom.Time(post.Published),
 			Updated:   atom.Time(post.Updated),
-			Summary: &atom.Text{
-				Type: "html",
-				Body: summary(post),
-			},
 			Content: &atom.Text{
 				Type: "html",
 				Body: string(post.Content),
