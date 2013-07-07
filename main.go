@@ -223,12 +223,15 @@ func (blog *Blog) writeOutputPosts() error {
 		return err
 	}
 
+	recent := blog.PostsByDate[:min(len(blog.PostsByDate), blog.NumRecentPosts)]
+
 	// Render pages
 	for _, page := range blog.Pages {
 		fmt.Printf("processing %q\n", page.Title)
 		postinfo := postInfo{
-			Post: page,
-			Blog: blog,
+			Post:   page,
+			Blog:   blog,
+			Recent: recent,
 		}
 
 		if err = blog.writeOutputPost(&postinfo, tmpl); err != nil {
@@ -237,7 +240,6 @@ func (blog *Blog) writeOutputPosts() error {
 	}
 
 	// Render regular posts
-	recent := blog.PostsByDate[:min(len(blog.PostsByDate), blog.NumRecentPosts)]
 	for idx, post := range blog.PostsByDate {
 		fmt.Printf("processing %s: %q\n", post.Id, post.Title)
 
