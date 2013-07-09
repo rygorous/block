@@ -18,11 +18,23 @@ import (
 	"time"
 )
 
+type DocType int
+
+const (
+	DocPost DocType = iota
+	DocPage
+)
+
+var docType = map[string]DocType{
+	"post": DocPost,
+	"page": DocPage,
+}
+
 type PostID string // Should be unique
 
 type Post struct {
-	PageName  string // name for standalone posts
 	Id        PostID
+	Type      DocType
 	Published time.Time
 	Updated   time.Time
 	Title     string
@@ -125,8 +137,12 @@ func (post *Post) parseContent(contents []byte) error {
 				return fmt.Errorf("%q: %s", post.Id, err.Error())
 			}
 
-		case "pagename":
-			post.PageName = value
+		case "type":
+			var ok bool
+			post.Type, ok = docType[value]
+			if !ok {
+				return fmt.Errorf("%q: unknown type %q", post.Id, value)
+			}
 
 		case "parent":
 			post.parentId = PostID(value)
@@ -167,7 +183,7 @@ func parseKeyValueLine(line string) (key string, value string) {
 
 // Is this page a standalone page?
 func (post *Post) Standalone() bool {
-	return post.PageName != ""
+	return post.Type == DocPage
 }
 
 // Name of the renderer HTML file for this post

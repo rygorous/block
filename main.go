@@ -377,7 +377,7 @@ func copyFile(dstname, srcname string) error {
 func (blog *Blog) GenerateArchive() error {
 	// Generate archive markdown
 	buf := new(bytes.Buffer)
-	buf.WriteString("-pagename=archives\n")
+	buf.WriteString("-type=page\n")
 	buf.WriteString("# Archives\n")
 
 	var prevDate time.Time
