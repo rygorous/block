@@ -78,8 +78,6 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 	}
 
 	post.Href = template.URL(post.RenderedName())
-	blackfriday.Markdown(post.markdown, newAnalyzer(post), extensions)
-
 	return post, nil
 }
 
@@ -127,6 +125,9 @@ func (post *Post) parseContent(contents []byte) error {
 		}
 
 		switch key {
+		case "title":
+			post.Title = value
+
 		case "time":
 			if post.Published, err = parseTime(value); err != nil {
 				return fmt.Errorf("%q: %s", post.Id, err.Error())
@@ -162,9 +163,12 @@ func (post *Post) parseContent(contents []byte) error {
 }
 
 func (post *Post) validate() error {
+	if post.Title == "" {
+		return fmt.Errorf("%q: no title set.", post.Id)
+	}
 	if !post.Standalone() {
 		if post.Published.IsZero() {
-			return fmt.Errorf("post %q doesn't have a publication time set", post.Id)
+			return fmt.Errorf("%q: no publication time set", post.Id)
 		}
 	}
 	return nil
@@ -243,46 +247,6 @@ func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg 
 	return
 }
 
-type postAnalyzer struct {
-	*blackfriday.Null
-	post *Post
-}
-
-func newAnalyzer(post *Post) blackfriday.Renderer {
-	return &postAnalyzer{Null: &blackfriday.Null{}, post: post}
-}
-
-func (p *postAnalyzer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
-	if lang != "" {
-		p.post.BlockCode = true
-	}
-}
-
-func (p *postAnalyzer) Header(out *bytes.Buffer, text func() bool, level int) {
-	if level == 1 {
-		if p.post.Title != "" {
-			Warnf("Post %q defines multiple titles! (Level-1 headlines)", p.post.Id)
-		}
-
-		out.Truncate(0)
-		text()
-		p.post.Title = string(out.Bytes())
-		out.Truncate(0)
-	}
-}
-
-func (p *postAnalyzer) DisplayMath(out *bytes.Buffer, text []byte) {
-	p.post.MathJax = true
-}
-
-func (p *postAnalyzer) InlineMath(out *bytes.Buffer, text []byte) {
-	p.post.MathJax = true
-}
-
-func (p *postAnalyzer) NormalText(out *bytes.Buffer, text []byte) {
-	out.Write(text)
-}
-
 type postHtmlRenderer struct {
 	*blackfriday.Html
 	post *Post
@@ -300,10 +264,11 @@ func newHtmlRenderer(post *Post, blog *Blog) *postHtmlRenderer {
 	}
 }
 
-func (p *postHtmlRenderer) Header(out *bytes.Buffer, text func() bool, level int) {
-	if level != 1 {
-		p.Html.Header(out, text, level)
+func (p *postHtmlRenderer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
+	if lang != "" {
+		p.post.BlockCode = true
 	}
+	p.Html.BlockCode(out, text, lang)
 }
 
 func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
@@ -382,12 +347,14 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 }
 
 func (p *postHtmlRenderer) DisplayMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
 	out.WriteString("<script type=\"math/tex; mode=display\">")
 	out.Write(text)
 	out.WriteString("</script>")
 }
 
 func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
+	p.post.MathJax = true
 	out.WriteString("<script type=\"math/tex\">")
 	out.Write(text)
 	out.WriteString("</script>")

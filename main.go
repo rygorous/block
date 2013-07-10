@@ -378,7 +378,7 @@ func (blog *Blog) GenerateArchive() error {
 	// Generate archive markdown
 	buf := new(bytes.Buffer)
 	buf.WriteString("-type=page\n")
-	buf.WriteString("# Archives\n")
+	buf.WriteString("-title=Archives\n")
 
 	var prevDate time.Time
 	for _, post := range blog.PostsByDate {
