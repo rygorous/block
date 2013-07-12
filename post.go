@@ -350,12 +350,16 @@ func (p *postHtmlRenderer) DisplayMath(out *bytes.Buffer, text []byte) {
 	p.post.MathJax = true
 	out.WriteString("<script type=\"math/tex; mode=display\">")
 	out.Write(text)
-	out.WriteString("</script>")
+	out.WriteString("</script><noscript>")
+	out.WriteString(html.EscapeString(string(text)))
+	out.WriteString("</noscript>")
 }
 
 func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
 	p.post.MathJax = true
 	out.WriteString("<script type=\"math/tex\">")
 	out.Write(text)
-	out.WriteString("</script>")
+	out.WriteString("</script><noscript>")
+	out.WriteString(html.EscapeString(string(text)))
+	out.WriteString("</noscript>")
 }
