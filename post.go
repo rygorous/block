@@ -59,7 +59,8 @@ const (
 		blackfriday.EXTENSION_FENCED_CODE |
 		blackfriday.EXTENSION_AUTOLINK |
 		blackfriday.EXTENSION_SPACE_HEADERS |
-		blackfriday.EXTENSION_MATH
+		blackfriday.EXTENSION_MATH |
+		blackfriday.EXTENSION_LIQUIDTAG
 )
 
 func NewPost(filename string, contents []byte) (*Post, error) {
@@ -362,4 +363,7 @@ func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
 	out.WriteString("</script><noscript>")
 	out.WriteString(html.EscapeString(string(text)))
 	out.WriteString("</noscript>")
+}
+
+func (p *postHtmlRenderer) LiquidTag(out *bytes.Buffer, tag, content []byte) {
 }
