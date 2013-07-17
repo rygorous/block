@@ -265,6 +265,12 @@ func newHtmlRenderer(post *Post, blog *Blog) *postHtmlRenderer {
 	}
 }
 
+func (p *postHtmlRenderer) Error(err error) {
+	if p.err != nil {
+		p.err = err
+	}
+}
+
 func (p *postHtmlRenderer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
 	if lang != "" {
 		p.post.BlockCode = true
@@ -275,7 +281,7 @@ func (p *postHtmlRenderer) BlockCode(out *bytes.Buffer, text []byte, lang string
 func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 	uri, err, cfg := findImage(p.blog, p.post, string(link))
 	if err != nil {
-		p.err = err
+		p.Error(err)
 		return
 	}
 
@@ -339,8 +345,8 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 			if string(content) == "%" {
 				content = []byte(target.Title)
 			}
-		} else if p.err == nil {
-			p.err = fmt.Errorf("%q: contains link to post %q which does not exist.", p.post.Id, linkTo)
+		} else {
+			p.Error(fmt.Errorf("%q: contains link to post %q which does not exist.", p.post.Id, linkTo))
 		}
 	}
 
@@ -366,4 +372,17 @@ func (p *postHtmlRenderer) InlineMath(out *bytes.Buffer, text []byte) {
 }
 
 func (p *postHtmlRenderer) LiquidTag(out *bytes.Buffer, tag, content []byte) {
+	switch string(tag) {
+	case "figure":
+		out.WriteString("<figure>")
+	case "endfigure":
+		out.WriteString("</figure>")
+	case "figcaption":
+		out.WriteString("<figcaption>")
+	case "endfigcaption":
+		out.WriteString("</figcaption>")
+
+	default:
+		p.Error(fmt.Errorf("Unrecognized liquid-tag %q", string(tag)))
+	}
 }
