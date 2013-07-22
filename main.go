@@ -241,7 +241,7 @@ func (blog *Blog) writeOutputPosts() error {
 
 	// Render regular posts
 	for idx, post := range blog.PostsByDate {
-		fmt.Printf("processing %s: %q\n", post.Id, post.Title)
+		fmt.Printf("processing %q\n", post.Title)
 
 		postinfo := postInfo{
 			Post:   post,

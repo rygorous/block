@@ -215,6 +215,21 @@ func parsePostLink(link []byte) PostID {
 	return PostID(link[1:])
 }
 
+func tryAddImage(blog *Blog, post *Post, filepath, uri string) (found bool, err error, cfg image.Config) {
+	var file *os.File
+	found = false
+	if file, err = os.Open(filepath); err == nil {
+		cfg, _, err = image.DecodeConfig(file)
+		file.Close()
+
+		if err == nil {
+			found = true
+			err = blog.AddStaticFile(uri, filepath)
+		}
+	}
+	return
+}
+
 func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg image.Config) {
 	// If it's an absolute URL, pass it through - but we don't know the size.
 	if url, urlerr := url.Parse(name); urlerr == nil && url.IsAbs() {
@@ -228,19 +243,25 @@ func findImage(blog *Blog, post *Post, name string) (uri string, err error, cfg 
 		return
 	}
 
-	// Search first in asset dirs for this post, then parent posts
-	for p := post; p != nil; p = p.Parent {
-		var file *os.File
-		filepath := filepath.Join(blog.PostDir, p.AssetPath(), name)
-		if file, err = os.Open(filepath); err == nil {
-			cfg, _, err = image.DecodeConfig(file)
-			file.Close()
-
-			if err == nil {
-				uri = path.Join(p.AssetPath(), name)
-				err = blog.AddStaticFile(uri, filepath)
-			}
+	// If the path name contains a slash, assume it's a full path
+	// in the content dir.
+	if strings.IndexRune(name, '/') != -1 {
+		var found bool
+		filepath := filepath.Join(blog.PostDir, name)
+		uri = name
+		if found, err, cfg = tryAddImage(blog, post, filepath, uri); found {
 			return
+		}
+	} else {
+		// Search first in asset dirs for this post, then parent posts
+		for p := post; p != nil; p = p.Parent {
+			var found bool
+			filepath := filepath.Join(blog.PostDir, p.AssetPath(), name)
+			uri = path.Join(p.AssetPath(), name)
+			if found, err, cfg = tryAddImage(blog, post, filepath, uri); found {
+				return
+			}
+
 		}
 	}
 
@@ -266,7 +287,7 @@ func newHtmlRenderer(post *Post, blog *Blog) *postHtmlRenderer {
 }
 
 func (p *postHtmlRenderer) Error(err error) {
-	if p.err != nil {
+	if p.err == nil {
 		p.err = err
 	}
 }
@@ -340,8 +361,14 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 
 func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) {
 	if linkTo := parsePostLink(link); linkTo != "" {
+		fragment := []byte{}
+		if fragOffs := strings.IndexRune(string(linkTo), '#'); fragOffs != -1 {
+			fragment = []byte(linkTo[fragOffs:])
+			linkTo = linkTo[:fragOffs]
+		}
+
 		if target := p.blog.FindPostById(linkTo); target != nil {
-			link = []byte(target.RenderedName())
+			link = append([]byte(target.RenderedName()), fragment...)
 			if string(content) == "%" {
 				content = []byte(target.Title)
 			}
