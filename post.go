@@ -207,14 +207,6 @@ func (post *Post) Render(blog *Blog) error {
 	return renderer.err
 }
 
-func parsePostLink(link []byte) PostID {
-	if len(link) < 2 || link[0] != '*' {
-		return ""
-	}
-
-	return PostID(link[1:])
-}
-
 func tryAddImage(blog *Blog, post *Post, filepath, uri string) (found bool, err error, cfg image.Config) {
 	var file *os.File
 	found = false
@@ -332,6 +324,9 @@ func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
 		}
 	}
 
+	alt = handleMarkdownEscapes(alt)
+	title = handleMarkdownEscapes(title)
+
 	out.WriteString("<img src=\"")
 	out.WriteString(html.EscapeString(uri))
 	out.WriteString("\" alt=\"")
@@ -377,6 +372,8 @@ func (p *postHtmlRenderer) Link(out *bytes.Buffer, link, title, content []byte) 
 		}
 	}
 
+	title = handleMarkdownEscapes(title)
+
 	p.Html.Link(out, link, title, content)
 }
 
@@ -412,4 +409,40 @@ func (p *postHtmlRenderer) LiquidTag(out *bytes.Buffer, tag, content []byte) {
 	default:
 		p.Error(fmt.Errorf("Unrecognized liquid-tag %q", string(tag)))
 	}
+}
+
+func parsePostLink(link []byte) PostID {
+	if len(link) < 2 || link[0] != '*' {
+		return ""
+	}
+
+	return PostID(link[1:])
+}
+
+func handleMarkdownEscapes(text []byte) []byte {
+	// if no backslashes in text, we don't need to do anything.
+	i := bytes.IndexByte(text, '\\')
+	if i == -1 {
+		return text
+	}
+
+	out := make([]byte, 0, len(text))
+	for i != -1 {
+		out = append(out, text[:i]...)
+		var ch byte
+		if i+1 < len(text) {
+			ch = text[i+1]
+		}
+		switch ch {
+		case '\\', '\'', '"', '(', ')', '{', '}', '[', ']', '<', '>':
+			// self-escaping chars
+			out = append(out, ch)
+		default:
+			// unrecognized escape sequences are just passed through
+			out = append(out, text[i:i+2]...)
+		}
+		text = text[i+2:]
+		i = bytes.IndexByte(text, '\\')
+	}
+	return append(out, text...)
 }
