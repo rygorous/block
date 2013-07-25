@@ -187,7 +187,7 @@ type postInfo struct {
 	Recent []*Post
 }
 
-func (blog *Blog) WriteOutput() error {
+func (blog *Blog) RenderPosts() error {
 	// Render all posts' contents
 	for _, post := range blog.AllPosts {
 		if err := post.Render(blog); err != nil {
@@ -195,7 +195,10 @@ func (blog *Blog) WriteOutput() error {
 		}
 	}
 	blog.renderAtomFeed()
+	return nil
+}
 
+func (blog *Blog) WriteOutput() error {
 	// Wipe existing output dir
 	if err := os.RemoveAll(blog.OutDir); err != nil {
 		return err
@@ -298,6 +301,12 @@ func (blog *Blog) writeOutputPosts() error {
 			Recent: recent,
 		}
 		sort.Sort(postsByPublishDateAsc(postinfo.Docs))
+
+		// union of source render flags
+		for _, post := range root.Kids {
+			root.MathJax = root.MathJax || post.MathJax
+			root.BlockCode = root.BlockCode || post.BlockCode
+		}
 
 		outname := filepath.Join(blog.OutDir, root.RenderedName())
 		if err = blog.writeOutputPost(&postinfo, tmpl, outname); err != nil {
@@ -488,6 +497,7 @@ func main() {
 	check(blog.LinkPosts())
 	check(blog.GenerateArchive())
 	check(blog.GenerateCollections())
+	check(blog.RenderPosts())
 	check(blog.WriteOutput())
 
 	fmt.Println("Done!")

@@ -88,12 +88,6 @@ func NewCollectionPost(root *Post) (out *Post, err error) {
 		Kids:      root.Kids,
 	}
 
-	// union of all render flags
-	for _, post := range root.Kids {
-		out.MathJax = out.MathJax || post.MathJax
-		out.BlockCode = out.BlockCode || post.BlockCode
-	}
-
 	return
 }
 
