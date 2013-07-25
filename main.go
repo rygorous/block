@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"code.google.com/p/go.blog/pkg/atom"
@@ -36,6 +37,7 @@ type Blog struct {
 	Pages       []*Post // standalone pages
 	PostsByDate []*Post // posts sorted by date (this is really only posts, not standalone pages)
 	Series      []*Post // list of parent posts for series
+	Collections []*Post // list of root posts for collections
 
 	// Files
 	files map[string]string // dst_path (relative to output) -> src_path (relative to blog root)
@@ -60,6 +62,12 @@ type postsByPublishDate []*Post
 func (p postsByPublishDate) Len() int           { return len(p) }
 func (p postsByPublishDate) Less(i, j int) bool { return p[i].Published.After(p[j].Published) }
 func (p postsByPublishDate) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+type postsByPublishDateAsc []*Post
+
+func (p postsByPublishDateAsc) Len() int           { return len(p) }
+func (p postsByPublishDateAsc) Less(i, j int) bool { return p[j].Published.After(p[i].Published) }
+func (p postsByPublishDateAsc) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 func min(a, b int) int {
 	if a < b {
@@ -98,7 +106,13 @@ func (blog *Blog) ReadPosts() error {
 			return err
 		}
 
-		post, err := NewPost(filepath.Base(file), text)
+		// Generate ID from file name by stripping extension
+		id := filepath.Base(file)
+		if idx := strings.LastIndex(id, "."); idx != -1 {
+			id = id[:idx]
+		}
+
+		post, err := NewPost(id, text)
 		if err != nil {
 			return err
 		}
@@ -165,7 +179,8 @@ func (blog *Blog) FindPostById(which PostID) *Post {
 }
 
 type postInfo struct {
-	Post   *Post
+	Root   *Post   // root post for this page
+	Docs   []*Post // list of all docs for this page
 	Next   *Post
 	Prev   *Post
 	Blog   *Blog
@@ -229,12 +244,13 @@ func (blog *Blog) writeOutputPosts() error {
 	for _, page := range blog.Pages {
 		fmt.Printf("processing %q\n", page.Title)
 		postinfo := postInfo{
-			Post:   page,
+			Root:   page,
+			Docs:   []*Post{page},
 			Blog:   blog,
 			Recent: recent,
 		}
 
-		if err = blog.writeOutputPost(&postinfo, tmpl); err != nil {
+		if err = blog.writeOutputPost(&postinfo, tmpl, filepath.Join(blog.OutDir, page.RenderedName())); err != nil {
 			return err
 		}
 	}
@@ -244,10 +260,12 @@ func (blog *Blog) writeOutputPosts() error {
 		fmt.Printf("processing %q\n", post.Title)
 
 		postinfo := postInfo{
-			Post:   post,
+			Root:   post,
+			Docs:   []*Post{post},
 			Blog:   blog,
 			Recent: recent,
 		}
+		outname := filepath.Join(blog.OutDir, post.RenderedName())
 
 		if idx > 0 {
 			postinfo.Next = blog.PostsByDate[idx-1]
@@ -257,7 +275,32 @@ func (blog *Blog) writeOutputPosts() error {
 			postinfo.Prev = blog.PostsByDate[idx+1]
 		}
 
-		if err = blog.writeOutputPost(&postinfo, tmpl); err != nil {
+		if err = blog.writeOutputPost(&postinfo, tmpl, outname); err != nil {
+			return err
+		}
+
+		// If this is the most recent post, make a copy for index.html.
+		if post == blog.MostRecent {
+			if err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Render collections
+	for _, root := range blog.Collections {
+		fmt.Printf("processing collection %q\n", root.Title)
+
+		postinfo := postInfo{
+			Root:   root,
+			Docs:   root.Kids,
+			Blog:   blog,
+			Recent: recent,
+		}
+		sort.Sort(postsByPublishDateAsc(postinfo.Docs))
+
+		outname := filepath.Join(blog.OutDir, root.RenderedName())
+		if err = blog.writeOutputPost(&postinfo, tmpl, outname); err != nil {
 			return err
 		}
 	}
@@ -266,31 +309,18 @@ func (blog *Blog) writeOutputPosts() error {
 }
 
 // Writes a single post to the output
-func (blog *Blog) writeOutputPost(info *postInfo, tmpl *template.Template) error {
-	outname := filepath.Join(blog.OutDir, info.Post.RenderedName())
+func (blog *Blog) writeOutputPost(info *postInfo, tmpl *template.Template, outname string) error {
 	outfile, err := os.Create(outname)
 	if err != nil {
 		return err
 	}
 
-	info.Post.Active = true
+	info.Root.Active = true
 	err = tmpl.Execute(outfile, info)
-	info.Post.Active = false
+	info.Root.Active = false
 
 	outfile.Close()
-	if err != nil {
-		return err
-	}
-
-	// If this is the most recent post, make a copy for index.html.
-	if info.Post == blog.MostRecent {
-		err = copyFile(filepath.Join(blog.OutDir, "index.html"), outname)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return err
 }
 
 func (blog *Blog) writeAtomFeed() error {
@@ -403,6 +433,19 @@ func (blog *Blog) GenerateArchive() error {
 	return nil
 }
 
+// Generates collections for all series
+func (blog *Blog) GenerateCollections() error {
+	for _, series := range blog.Series {
+		coll, err := NewCollectionPost(series)
+		if err != nil {
+			return err
+		}
+		blog.AllPosts = append(blog.AllPosts, coll)
+		blog.Collections = append(blog.Collections, coll)
+	}
+	return nil
+}
+
 // Adds a static file to the blog.
 func (blog *Blog) AddStaticFile(webpath, srcpath string) error {
 	if val, in := blog.files[webpath]; in {
@@ -444,6 +487,7 @@ func main() {
 	check(blog.ReadPosts())
 	check(blog.LinkPosts())
 	check(blog.GenerateArchive())
+	check(blog.GenerateCollections())
 	check(blog.WriteOutput())
 
 	fmt.Println("Done!")

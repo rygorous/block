@@ -22,12 +22,14 @@ type DocType int
 
 const (
 	DocPost DocType = iota
+	DocCollection
 	DocPage
 )
 
 var docType = map[string]DocType{
-	"post": DocPost,
-	"page": DocPage,
+	"post":       DocPost,
+	"collection": DocCollection,
+	"page":       DocPage,
 }
 
 type PostID string // Should be unique
@@ -63,13 +65,7 @@ const (
 		blackfriday.EXTENSION_LIQUIDTAG
 )
 
-func NewPost(filename string, contents []byte) (*Post, error) {
-	// attempt to parse ID from file name (if given)
-	id := filename
-	if idx := strings.LastIndex(filename, "."); idx != -1 {
-		id = filename[:idx]
-	}
-
+func NewPost(id string, contents []byte) (*Post, error) {
 	post := &Post{
 		Id: PostID(id),
 	}
@@ -80,6 +76,25 @@ func NewPost(filename string, contents []byte) (*Post, error) {
 
 	post.Href = template.URL(post.RenderedName())
 	return post, nil
+}
+
+func NewCollectionPost(root *Post) (out *Post, err error) {
+	out = &Post{
+		Id:        PostID("collect_" + string(root.Id)),
+		Type:      DocCollection,
+		Published: root.Published,
+		Updated:   root.Updated,
+		Title:     root.Title,
+		Kids:      root.Kids,
+	}
+
+	// union of all render flags
+	for _, post := range root.Kids {
+		out.MathJax = out.MathJax || post.MathJax
+		out.BlockCode = out.BlockCode || post.BlockCode
+	}
+
+	return
 }
 
 var timeFormats = []string{
