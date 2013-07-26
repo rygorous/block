@@ -294,10 +294,29 @@ func (p *postHtmlRenderer) Error(err error) {
 }
 
 func (p *postHtmlRenderer) BlockCode(out *bytes.Buffer, text []byte, lang string) {
+	var args map[string]string
+
 	if lang != "" {
 		p.post.BlockCode = true
+		args = parseAttrs(lang)
 	}
-	p.Html.BlockCode(out, text, lang)
+	out.WriteString("\n")
+
+	// parse out the language names/classes
+	out.WriteString("<pre")
+	if lang, ok := args["@0"]; ok {
+		out.WriteString(" class=\"language-")
+		out.WriteString(html.EscapeString(lang))
+		out.WriteByte('"')
+	}
+	if highlight, ok := args["highlight"]; ok {
+		out.WriteString(" data-line=\"")
+		out.WriteString(html.EscapeString(highlight))
+		out.WriteByte('"')
+	}
+	out.WriteString("><code>")
+	out.WriteString(html.EscapeString(string(text)))
+	out.WriteString("</code></pre>\n")
 }
 
 func (p *postHtmlRenderer) Image(out *bytes.Buffer, link, title, alt []byte) {
@@ -454,4 +473,100 @@ func handleMarkdownEscapes(text []byte) []byte {
 		i = bytes.IndexByte(text, '\\')
 	}
 	return append(out, text...)
+}
+
+// Attribute processing from WP shortcode parser
+func parseAttrs(attrs string) (out map[string]string) {
+	out = make(map[string]string)
+	keyIdx := 0
+	pos := 0
+	for pos < len(attrs) {
+		pos += countSpaces(attrs[pos:])
+		if pos >= len(attrs) {
+			break
+		}
+
+		// try to parse key name
+		keyStart, keyEnd := pos, pos
+		for keyEnd < len(attrs) && isWord(attrs[keyEnd]) {
+			keyEnd++
+		}
+
+		eqPos := keyEnd + countSpaces(attrs[keyEnd:])
+		if eqPos < len(attrs) && attrs[eqPos] == '=' {
+			// looks like a key-value pair
+			var innerPos, innerEnd int
+			valPos := eqPos + 1 + countSpaces(attrs[eqPos+1:])
+			valEnd := valPos
+
+			if valPos < len(attrs) {
+				// quoted attrib?
+				if attrs[valPos] == '"' || attrs[valPos] == '\'' {
+					innerEnd = valPos + 1 + strings.IndexRune(attrs[valPos+1:], rune(attrs[valPos]))
+					if innerEnd > valPos {
+						innerPos, valEnd = valPos+1, innerEnd+1
+					}
+				}
+
+				// unquoted attrib?
+				if valEnd == valPos {
+					for valEnd < len(attrs) && !isSpace(attrs[valEnd]) && attrs[valEnd] != '"' && attrs[valEnd] != '\'' {
+						valEnd++
+					}
+					innerPos = valPos
+					innerEnd = valEnd
+				}
+
+				// if we have a value, add it to the node!
+				if valEnd != valPos {
+					out[attrs[keyStart:keyEnd]] = attrs[innerPos:innerEnd]
+					pos = valEnd
+					continue
+				}
+			}
+		}
+
+		// key-value pair didn't work out. try parsing as indexed value
+		var innerPos, innerEnd int
+		end := pos
+
+		// quoted value?
+		if attrs[pos] == '"' {
+			innerEnd = pos + 1 + strings.IndexRune(attrs[pos+1:], '"')
+			if innerEnd > pos {
+				innerPos, end = pos+1, innerEnd+1
+			}
+		}
+
+		// if all else fails, try regular value
+		if end == pos {
+			for end < len(attrs) && !isSpace(attrs[end]) {
+				end++
+			}
+			innerPos, innerEnd = pos, end
+		}
+
+		out[fmt.Sprintf("@%d", keyIdx)] = attrs[innerPos:innerEnd]
+		pos = end
+		keyIdx++
+	}
+
+	return
+}
+
+func countSpaces(str string) int {
+	n := 0
+	for n < len(str) && isSpace(str[n]) {
+		n++
+	}
+	return n
+}
+
+// These functions match Perl character classes.
+func isSpace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
+}
+
+func isWord(ch byte) bool {
+	return ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '_'
 }
